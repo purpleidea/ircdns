@@ -80,7 +80,8 @@ type Main struct {
 	state ircstate.Tracker
 
 	// names is the current list of names in the room.
-	names []string
+	names   []string
+	newNick string
 
 	wg   *sync.WaitGroup
 	exit *mgmtutil.EasyExit // exit signal
@@ -102,6 +103,7 @@ func (obj *Main) Init() error {
 	if obj.Nick == "" {
 		return fmt.Errorf("missing Nick value")
 	}
+	obj.newNick = obj.Nick // store initial value
 	if obj.Me == "" {
 		return fmt.Errorf("missing Me value")
 	}
@@ -235,15 +237,21 @@ func (obj *Main) Run() error {
 			s := strings.TrimPrefix(n, obj.Nick)
 			if s == "" {
 				// TODO: is the rand seeded automatically?
-				return fmt.Sprintf("%s%d", obj.Nick, rand.Int63())
+				newNick := fmt.Sprintf("%s%d", obj.Nick, rand.Int63())
+				obj.newNick = newNick
+				return newNick
 			}
 			if _, err := strconv.Atoi(s); err == nil {
 				// TODO: do we need to check not to return the
 				// same previous int by accident?
-				return fmt.Sprintf("%s%d", obj.Nick, rand.Int63())
+				newNick := fmt.Sprintf("%s%d", obj.Nick, rand.Int63())
+				obj.newNick = newNick
+				return newNick
 			}
 		}
-		return n + "?" // make up a stupid name
+		newNick := n + "?" // make up a stupid name
+		obj.newNick = newNick
+		return newNick
 	}
 	obj.conn = irc.Client(cfg)
 	disconnect := false // did we get a disconnect?
@@ -289,7 +297,7 @@ func (obj *Main) Run() error {
 	obj.conn.HandleFunc(irc.JOIN, func(_ *irc.Conn, line *irc.Line) {
 		log.Printf("Joined...")
 
-		if line.Nick == obj.Nick { // it's me, ignore the rest...
+		if line.Nick == obj.getNick() { // it's me, ignore the rest...
 			return
 		}
 		log.Printf("Join: %s", line.Nick)
@@ -304,7 +312,7 @@ func (obj *Main) Run() error {
 	obj.conn.HandleFunc(irc.PART, func(_ *irc.Conn, line *irc.Line) {
 		log.Printf("Parted...")
 
-		if line.Nick == obj.Nick { // it's me, ignore the rest...
+		if line.Nick == obj.getNick() { // it's me, ignore the rest...
 			return
 		}
 		log.Printf("Part: %s", line.Nick)
@@ -361,6 +369,21 @@ func (obj *Main) Run() error {
 	log.Printf("Done!")
 
 	return nil
+}
+
+// getNick returns the actual Nick being used. This is different than obj.Nick
+// if we got renamed because of a 433 event meaning the name is already in use.
+func (obj *Main) getNick() string {
+	n := obj.state.Me() // ask the state tracker
+
+	// If we're using a changed nick, *and* the currently reported nick is
+	// the original nick, then the state tracker must be slow or broken, so
+	// use our own locally tracked state in this case.
+	if obj.newNick != obj.Nick && n.Nick == obj.Nick {
+		return obj.newNick
+	}
+
+	return n.Nick
 }
 
 // getNames gets a list of names in the channel and also updates our main cache.
