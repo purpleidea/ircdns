@@ -43,6 +43,7 @@ const (
 	ipPollInterval = 60 * time.Second
 	quitMsg        = "Bye!"
 	defaultChannel = "#ircdns"
+	maxNickLength  = 16
 )
 
 // set at compile time
@@ -102,6 +103,9 @@ func (obj *Main) Init() error {
 	}
 	if obj.Nick == "" {
 		return fmt.Errorf("missing Nick value")
+	}
+	if len(obj.Nick) > maxNickLength {
+		return fmt.Errorf("the Nick is too long, max length of %d", maxNickLength)
 	}
 	obj.newNick = obj.Nick // store initial value
 	if obj.Me == "" {
@@ -238,6 +242,7 @@ func (obj *Main) Run() error {
 			if s == "" {
 				// TODO: is the rand seeded automatically?
 				newNick := fmt.Sprintf("%s%d", obj.Nick, rand.Int63())
+				newNick = safeNick(newNick)
 				obj.newNick = newNick
 				return newNick
 			}
@@ -245,11 +250,13 @@ func (obj *Main) Run() error {
 				// TODO: do we need to check not to return the
 				// same previous int by accident?
 				newNick := fmt.Sprintf("%s%d", obj.Nick, rand.Int63())
+				newNick = safeNick(newNick)
 				obj.newNick = newNick
 				return newNick
 			}
 		}
 		newNick := n + "?" // make up a stupid name
+		newNick = safeNick(newNick)
 		obj.newNick = newNick
 		return newNick
 	}
@@ -390,6 +397,11 @@ func (obj *Main) getNick() string {
 func (obj *Main) getNames() []string {
 	c := obj.state.GetChannel(obj.Channel)
 	n := []string{}
+	if c == nil { // this can happen if we pick a nick longer than 16 chars!
+		log.Printf("Bug:getNames:c is nil!")
+		//obj.conn.Raw("NAMES" + " " + obj.Channel) // ask again?
+		return n
+	}
 	for k := range c.Nicks {
 		n = append(n, k)
 	}
@@ -405,6 +417,13 @@ func (obj *Main) sendMsg() {
 	msg := fmt.Sprintf("Host: %s, IP: %s", obj.Hostname, obj.ip)
 	log.Printf("Sending message: %s", msg)
 	obj.conn.Privmsg(obj.Channel, msg)
+}
+
+func safeNick(nick string) string {
+	if len(nick) > 16 {
+		return nick[0:maxNickLength]
+	}
+	return nick
 }
 
 func main() {
