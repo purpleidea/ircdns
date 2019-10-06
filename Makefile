@@ -114,6 +114,9 @@ install: $(PROGRAM) ## install the service
 	sudo chown root:root /usr/local/bin/$(PROGRAM)
 	sudo restorecon -rv /usr/local/bin/$(PROGRAM) # selinux!!!
 	sudo cp -a misc/$(PROGRAM).service /etc/systemd/system/
+	if [ -e /etc/redhat-release ] && [[ `cat /etc/redhat-release` == "CentOS Linux release 7"* ]]; then \
+		sudo cp -a misc/$(PROGRAM).service.centos-7 /etc/systemd/system/$(PROGRAM).service; \
+	fi
 	sudo chmod 644 /etc/systemd/system/$(PROGRAM).service
 	sudo restorecon -rv /etc/systemd/system/$(PROGRAM).service # selinux!!!
 	sudo systemctl daemon-reload

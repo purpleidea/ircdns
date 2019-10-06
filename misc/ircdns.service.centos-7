@@ -1,0 +1,12 @@
+[Unit]
+Description=Run IRCdns service
+Documentation=https://github.com/purpleidea/ircdns/
+After=syslog.target network.target nss-lookup.target
+
+[Service]
+ExecStart=/usr/local/bin/ircdns $OPTS
+RestartSec=5s
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
