@@ -25,7 +25,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,8 +32,7 @@ import (
 	"time"
 
 	"github.com/chyeh/pubip"
-	irc "github.com/fluffle/goirc/client"
-	ircstate "github.com/fluffle/goirc/state"
+	"github.com/lrstanley/girc"
 	mgmtutil "github.com/purpleidea/mgmt/util"
 )
 
@@ -77,8 +75,7 @@ type Main struct {
 	ip      net.IP
 	ipevent chan struct{} // ip changed events
 
-	conn  *irc.Conn
-	state ircstate.Tracker
+	conn *girc.Client
 
 	// names is the current list of names in the room.
 	names   []string
@@ -228,42 +225,57 @@ func (obj *Main) Run() error {
 	}
 
 	// IRC...
-	cfg := irc.NewConfig(obj.Nick)
-	cfg.Me.Name = obj.Program  // hide the name of the IRC lib
-	cfg.Me.Ident = obj.Program // hide the name of the IRC lib
-	cfg.Version = obj.Version  // hide the name of the IRC lib
-	cfg.QuitMessage = quitMsg
-	cfg.SSL = true
-	cfg.SSLConfig = &tls.Config{ServerName: host} // no :port at the end
-	cfg.Server = obj.Server
-	cfg.NewNick = func(n string) string {
-		if strings.HasPrefix(n, obj.Nick) {
-			s := strings.TrimPrefix(n, obj.Nick)
-			if s == "" {
-				// TODO: is the rand seeded automatically?
-				newNick := fmt.Sprintf("%s%d", obj.Nick, rand.Int63())
-				newNick = safeNick(newNick)
-				obj.newNick = newNick
-				return newNick
-			}
-			if _, err := strconv.Atoi(s); err == nil {
-				// TODO: do we need to check not to return the
-				// same previous int by accident?
-				newNick := fmt.Sprintf("%s%d", obj.Nick, rand.Int63())
-				newNick = safeNick(newNick)
-				obj.newNick = newNick
-				return newNick
-			}
-		}
-		newNick := n + "?" // make up a stupid name
-		newNick = safeNick(newNick)
-		obj.newNick = newNick
-		return newNick
+	server, portstr, err := net.SplitHostPort(obj.Server)
+	if err != nil {
+		return err
 	}
-	obj.conn = irc.Client(cfg)
-	disconnect := false // did we get a disconnect?
-	obj.conn.EnableStateTracking()
-	obj.state = obj.conn.StateTracker()
+	port, err := strconv.Atoi(portstr)
+	if err != nil {
+		return err
+	}
+
+	gcfg := girc.Config{
+		Server:    server,
+		Port:      port,
+		Nick:      obj.Nick,
+		User:      obj.Program,
+		Name:      obj.Program,
+		Version:   obj.Version,
+		SSL:       true,
+		TLSConfig: &tls.Config{ServerName: host}, //nolint:gosec
+		PingDelay: time.Minute,
+		HandleNickCollide: func(n string) string {
+			if strings.HasPrefix(n, obj.Nick) {
+				s := strings.TrimPrefix(n, obj.Nick)
+				if s == "" {
+					// TODO: is the rand seeded automatically?
+					newNick := fmt.Sprintf("%s%d", obj.Nick, rand.Int63())
+					newNick = safeNick(newNick)
+					obj.newNick = newNick
+					return newNick
+				}
+				if _, err := strconv.Atoi(s); err == nil {
+					// TODO: do we need to check not to return the
+					// same previous int by accident?
+					newNick := fmt.Sprintf("%s%d", obj.Nick, rand.Int63())
+					newNick = safeNick(newNick)
+					obj.newNick = newNick
+					return newNick
+				}
+			}
+			newNick := n + "?" // make up a stupid name
+			newNick = safeNick(newNick)
+			obj.newNick = newNick
+			return newNick
+		},
+	}
+	obj.conn = girc.New(gcfg)
+	/*
+		if err := obj.conn.Connect(); err != nil {
+			return err
+		}
+	*/
+	disconnect := false
 
 	// NOTE: Possible event list that we might want to use.
 	// "JOIN"
@@ -282,13 +294,13 @@ func (obj *Main) Run() error {
 	// "671": whois reply (nick connected via SSL)
 
 	// Join a channel once connected.
-	obj.conn.HandleFunc(irc.CONNECTED, func(_ *irc.Conn, _ *irc.Line) {
+	obj.conn.Handlers.Add(girc.CONNECTED, func(_ *girc.Client, _ girc.Event) {
 		log.Printf("Connected, joining %s...", obj.Channel)
-		obj.conn.Join(obj.Channel)
+		obj.conn.Cmd.Join(obj.Channel)
 	})
 
 	// Send a signal on disconnect.
-	obj.conn.HandleFunc(irc.DISCONNECTED, func(_ *irc.Conn, _ *irc.Line) {
+	obj.conn.Handlers.Add(girc.DISCONNECTED, func(_ *girc.Client, _ girc.Event) {
 		disconnect = true
 		log.Printf("Disconnected, quitting...")
 		// TODO: can this ever get called twice?
@@ -296,56 +308,57 @@ func (obj *Main) Run() error {
 		obj.exit.Done(nil) // trigger exit
 	})
 
-	obj.conn.HandleFunc(irc.NOTICE, func(_ *irc.Conn, line *irc.Line) {
+	obj.conn.Handlers.Add(girc.NOTICE, func(_ *girc.Client, line girc.Event) {
 		log.Printf("Notice...")
-		//log.Printf("Notice: %+v", line)
+		log.Printf("Notice: %+v", line)
 	})
 
-	obj.conn.HandleFunc(irc.JOIN, func(_ *irc.Conn, line *irc.Line) {
+	obj.conn.Handlers.Add(girc.JOIN, func(_ *girc.Client, line girc.Event) {
 		log.Printf("Joined...")
-
-		if line.Nick == obj.getNick() { // it's me, ignore the rest...
+		if line.Source.ID() == obj.conn.GetNick() { // it's me, ignore the rest...
 			return
 		}
-		log.Printf("Join: %s", line.Nick)
+		log.Printf("Join: %s", line.Source.ID())
 
 		// Get the list of nicks after someone else joins. We don't do
 		// this when *we* join, because the names list isn't valid yet.
-		log.Printf("Nicks: %+v", obj.getNames())
+		log.Printf("Nicks: %+v", obj.conn.LookupChannel(obj.Channel).UserList)
 
 		obj.sendMsg() // consider sending if someone joined
 	})
 
-	obj.conn.HandleFunc(irc.PART, func(_ *irc.Conn, line *irc.Line) {
+	obj.conn.Handlers.Add(girc.PART, func(_ *girc.Client, line girc.Event) {
 		log.Printf("Parted...")
 
-		if line.Nick == obj.getNick() { // it's me, ignore the rest...
+		if line.Source.ID() == obj.conn.GetNick() { // it's me, ignore the rest...
 			return
 		}
-		log.Printf("Part: %s", line.Nick)
+		log.Printf("Part: %s", line.Source.ID())
 
 		// Get the list of nicks after someone else leaves. We don't do
 		// this when *we* leave, because who cares.
-		log.Printf("Nicks: %+v", obj.getNames())
+		log.Printf("Nicks: %+v", obj.conn.LookupChannel(obj.Channel).UserList)
 	})
 
-	obj.conn.HandleFunc(irc.MODE, func(_ *irc.Conn, line *irc.Line) {
+	obj.conn.Handlers.Add(girc.MODE, func(_ *girc.Client, line girc.Event) {
 		log.Printf("Mode...")
 	})
 
 	// Get the initial list of names after we join a channel.
-	obj.conn.HandleFunc("353", func(_ *irc.Conn, line *irc.Line) {
+	obj.conn.Handlers.Add("353", func(_ *girc.Client, line girc.Event) {
 		log.Printf("Names/353...")
-		log.Printf("Nicks: %+v", obj.getNames())
+		log.Printf("Nicks: %+v", obj.conn.LookupChannel(obj.Channel).UserList)
 
 		obj.sendMsg() // consider sending once we're in the channel
 	})
 
 	// Start the client connection process.
 	log.Printf("Connecting...")
-	if err := obj.conn.Connect(); err != nil {
-		log.Printf("Connection error: %+v", err.Error())
-	}
+	go func() {
+		if err := obj.conn.Connect(); err != nil {
+			log.Printf("Connection error: %+v", err.Error())
+		}
+	}()
 
 	// Send messages to channel.
 	obj.wg.Add(1)
@@ -368,7 +381,7 @@ func (obj *Main) Run() error {
 	case <-obj.exit.Signal(): // exit early on exit signal
 		if !disconnect {
 			log.Printf("Parting...")
-			obj.conn.Part(obj.Channel) // no part message needed
+			obj.conn.Cmd.Part(obj.Channel) // no part message needed
 		}
 		obj.conn.Quit(quitMsg) // XXX: should we do Part and Close first?
 	}
@@ -378,45 +391,13 @@ func (obj *Main) Run() error {
 	return nil
 }
 
-// getNick returns the actual Nick being used. This is different than obj.Nick
-// if we got renamed because of a 433 event meaning the name is already in use.
-func (obj *Main) getNick() string {
-	n := obj.state.Me() // ask the state tracker
-
-	// If we're using a changed nick, *and* the currently reported nick is
-	// the original nick, then the state tracker must be slow or broken, so
-	// use our own locally tracked state in this case.
-	if obj.newNick != obj.Nick && n.Nick == obj.Nick {
-		return obj.newNick
-	}
-
-	return n.Nick
-}
-
-// getNames gets a list of names in the channel and also updates our main cache.
-func (obj *Main) getNames() []string {
-	c := obj.state.GetChannel(obj.Channel)
-	n := []string{}
-	if c == nil { // this can happen if we pick a nick longer than 16 chars!
-		log.Printf("Bug:getNames:c is nil!")
-		//obj.conn.Raw("NAMES" + " " + obj.Channel) // ask again?
-		return n
-	}
-	for k := range c.Nicks {
-		n = append(n, k)
-	}
-	sort.Strings(n)
-	obj.names = n // store it
-	return n
-}
-
 func (obj *Main) sendMsg() {
-	if !mgmtutil.StrInList(obj.Me, obj.getNames()) {
+	if !mgmtutil.StrInList(obj.Me, obj.conn.LookupChannel(obj.Channel).UserList) {
 		return // skip sending if i'm not in the channel
 	}
 	msg := fmt.Sprintf("Host: %s, IP: %s", obj.Hostname, obj.ip)
 	log.Printf("Sending message: %s", msg)
-	obj.conn.Privmsg(obj.Channel, msg)
+	obj.conn.Cmd.Message(obj.Channel, msg)
 }
 
 func safeNick(nick string) string {
