@@ -1,0 +1,8 @@
+gopath/
+old/
+tmp/
+.envrc
+ircdns
+build/ircdns-*
+channel.ircdns
+bindata/*.go
