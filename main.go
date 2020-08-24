@@ -324,7 +324,7 @@ func (obj *Main) Run() error {
 		// this when *we* join, because the names list isn't valid yet.
 		log.Printf("Nicks: %+v", obj.conn.LookupChannel(obj.Channel).UserList)
 
-		obj.sendMsg() // consider sending if someone joined
+		//obj.sendMsg() // consider sending if someone joined
 	})
 
 	obj.conn.Handlers.Add(girc.PART, func(_ *girc.Client, line girc.Event) {
@@ -349,12 +349,24 @@ func (obj *Main) Run() error {
 		log.Printf("Names/353...")
 		log.Printf("Nicks: %+v", obj.conn.LookupChannel(obj.Channel).UserList)
 
-		obj.sendMsg() // consider sending once we're in the channel
+		obj.sendMsg() // send once we're in the channel in case someone is waiting
+	})
+
+	obj.conn.Handlers.Add(girc.PRIVMSG, func(_ *girc.Client, line girc.Event) {
+		//log.Printf("Privmsg: %s", line.Last())
+		if line.Last() != "ping" {
+			return
+		}
+
+		// FIXME: we should check the ping is from an authentic source!
+		//c.Cmd.ReplyTo(line, "pong")
+		obj.sendMsg() // send once if we get a ping
 	})
 
 	// Start the client connection process.
 	log.Printf("Connecting...")
 	go func() {
+		// NOTE: this Connect() blocks!
 		if err := obj.conn.Connect(); err != nil {
 			log.Printf("Connection error: %+v", err.Error())
 		}
@@ -376,7 +388,7 @@ func (obj *Main) Run() error {
 		}
 	}()
 
-	// Wait for disconnect
+	// Wait for disconnect.
 	select {
 	case <-obj.exit.Signal(): // exit early on exit signal
 		if !disconnect {

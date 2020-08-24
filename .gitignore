@@ -6,3 +6,6 @@ ircdns
 build/ircdns-*
 channel.ircdns
 bindata/*.go
+# client specific
+libnss_ircdns.h
+libnss_ircdns.so
