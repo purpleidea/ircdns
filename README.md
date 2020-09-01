@@ -114,6 +114,13 @@ PING example.com.ircdns (192.0.2.13) 56(84) bytes of data.
 1 packets transmitted, 0 received, 100% packet loss, time 0ms
 ```
 
+## Documentation:
+
+[I wrote a blog post about this.](https://purpleidea.com/blog/2020/09/01/inexpensive-dns-over-irc/)
+If you need more information, then please have a look at the source or
+[contact](https://purpleidea.com/contact/) me.
+
+
 ## Performance:
 
 Performance of a single lookup on a cold-cache is around 10 seconds. This is
