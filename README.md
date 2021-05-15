@@ -52,6 +52,28 @@ packaging. You'll also need the C headers for `libc` which can be obtained by
 installing the `glibc-headers` package in the "redhat" family, or the
 `libc6-dev` package in the "debian" family.
 
+The easiest way to get all the dependencies is to run:
+
+```bash
+./misc/make-deps.sh
+```
+
+If you get some errors like:
+
+```
+package _/root/ircdns: unrecognized import path "_/root/ircdns": import path does not begin with hostname
+package _/root/ircdns/client: unrecognized import path "_/root/ircdns/client": import path does not begin with hostname
+```
+
+at the end of running this script then run:
+
+```shell
+go mod init ircdns
+go get -u ./...
+```
+
+and then you should be able to `make` safely.
+
 ## Server usage:
 
 You can install it with:
