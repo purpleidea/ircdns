@@ -424,12 +424,15 @@ func main() {
 	if X_channel != "" {
 		channel = X_channel
 	}
+	// XXX: start off with a randomized name...
+	newNick := fmt.Sprintf("%s%d", X_nick, rand.Int63())
+	newNick = safeNick(newNick)
 	m := &Main{
 		Program: X_program,
 		Version: X_version,
 		Server:  X_server,
 		Channel: channel,
-		Nick:    X_nick,
+		Nick:    newNick,
 		Me:      X_me,
 	}
 	if err := m.Init(); err != nil {
