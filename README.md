@@ -17,7 +17,7 @@ This came about over frustration with constant failures of the `ddclient`
 program, and the cost of finding a free dynamic dns service. They're either
 expensive or not long-lived. IRC servers have been around much longer, and I
 hope they stick around. Donate a few dollars to [me](https://www.patreon.com/purpleidea)
-or [Freenode](https://freenode.net/).
+or [Libera](https://libera.chat/).
 
 ## Community:
 
@@ -25,7 +25,7 @@ Come join us in the `IRCdns` community!
 
 | Medium | Link |
 |---|---|
-| IRC | [#ircdns](https://webchat.freenode.net/?channels=#ircdns) on Freenode |
+| IRC | [#ircdns](https://web.libera.chat/?channels=#ircdns) on Libera |
 | GitHub | [purpleidea](https://github.com/sponsors/purpleidea) on GitHub |
 | Patreon | [purpleidea](https://www.patreon.com/purpleidea) on Patreon |
 | Liberapay | [purpleidea](https://liberapay.com/purpleidea/donate) on Liberapay |

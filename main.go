@@ -48,7 +48,7 @@ const (
 var (
 	X_program string
 	X_version string
-	X_server  string = "irc.freenode.net:7000"
+	X_server  string = "irc.libera.chat:7000"
 	X_channel string = defaultChannel
 	X_nick    string = "ircdns"
 	X_me      string = "purpleidea"
