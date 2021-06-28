@@ -424,6 +424,7 @@ func main() {
 	if X_channel != "" {
 		channel = X_channel
 	}
+	rand.Seed(time.Now().UnixNano()) // initialize with a unique seed
 	// XXX: start off with a randomized name...
 	newNick := fmt.Sprintf("%s%d", X_nick, rand.Int63())
 	newNick = safeNick(newNick)
