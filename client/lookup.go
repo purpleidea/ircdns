@@ -207,6 +207,8 @@ Loop:
 // cancel it when you're done.
 func IRC(ctx context.Context) (chan Entry, error) {
 	wg := &sync.WaitGroup{}
+	mutex := &sync.Mutex{}
+	closed := false
 
 	newCtx, cancel := context.WithCancel(ctx)
 	//defer cancel() // this is below in the goroutine
@@ -379,16 +381,28 @@ func IRC(ctx context.Context) (chan Entry, error) {
 			},
 		}
 
+		mutex.Lock()
+		if closed {
+			mutex.Unlock()
+			logf("Skipping sending entry: %s\t%s", a0, ip.String())
+			return
+		}
 		logf("Sending entry: %s\t%s", a0, ip.String())
 		select {
 		case ch <- entry:
 		case <-newCtx.Done(): // unblock
 		}
+		mutex.Unlock()
 	})
 
 	go func() {
 		defer wg.Wait()
-		defer close(ch)
+		defer func() {
+			mutex.Lock()
+			close(ch)
+			closed = true
+			mutex.Unlock()
+		}()
 		defer cancel() // from the newCtx above
 
 		// Start the client connection process.
